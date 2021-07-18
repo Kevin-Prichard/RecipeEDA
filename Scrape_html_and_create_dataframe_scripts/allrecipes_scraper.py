@@ -9,55 +9,61 @@ Created on 2/22/2021
 
 '''
 
+import json
 import numpy as np
 import numpy.random as random
 import requests
-import json
+import os
+
 from bs4 import BeautifulSoup
-from joblib import Parallel,delayed
+from joblib import Parallel, delayed
 
 
 ################## USER INPUT ###################
 
-html_path = '/Users/kaelynnrose/Documents/GALVANIZE/Capstones/Capstone_1/raw_html/' # path to directory you would like to store the .html files in
-log_path = '/Users/kaelynnrose/Documents/GALVANIZE/Capstones/Capstone_1/logs/' # path to directory where you would like to store the log of pages tried
+html_path = 'raw_html' # path to directory you would like to store the .html files in
+log_path = 'logs' # path to directory where you would like to store the log of pages tried
+np_path = 'masterlog.npy'
 
-num_array = np.arange(6663,283432) # choose page range to request. pages outside of this range are blank.
-rand_choice = random.choice(num_array,size=len(num_array),replace=False) # randomly sample page numbers
+rand_choice = np.arange(6663, 283432) # choose page range to request. pages outside of this range are blank.
+random.shuffle(rand_choice)
 
-cores = 4 # select number of cores on your machine you would like to use to run the scraper in parallel
+num_cores = 16 # select number of cores on your machine you would like to use to run the scraper in parallel
 
 ################## END USER INPUT ###############
 
 
 pages_tried = [] # initialize list of pages tried in case an error stops the scraper
-np.save(log_path + 'masterlog.npy',pages_tried) # save a master log of the pages already tried
+if not os.path.exists(np_path):
+    np.save(np_path, pages_tried) # save a master log of the pages already tried
 
-def scrape_webpage(i):
-    if i not in pages_tried:
+def scrape_webpage(recipe_num):
+    pages_tried = list(np.load(log_path + 'masterlog.npy', allow_pickle=True))
+    if recipe_num not in pages_tried:
         try:
-            print('Working on page number ' + str(i))
-            url = 'https://www.allrecipes.com/recipe/' + str(i)
+            print(f'Working on page number {recipe_num}')
+            raw_html_pathname = os.path.join(html_path, f'page{recipe_num}.html')
+            souped_html_pathname = os.path.join(html_path, f'page-souped{recipe_num}.html')
+            if os.path.exists(raw_html_pathname):
+                print(f'Page number {recipe_num} already exists at {raw_html_pathname}')
+                return
+            url = f'https://www.allrecipes.com/recipe/{recipe_num}'
             result = requests.get(url)
-            soup = BeautifulSoup(result.content,'html.parser')
-            text1 = str(soup.find_all('script',type='application/ld+json')[0]) # test to see whether the 'script' tag exists, if it does not this will go to the 'except' statement and then try the next page
+            with open(raw_html_pathname, "w") as file:
+                file.write(str(result.content)) # write the file
+
+            pages_tried.append(recipe_num)
+            np.save(np_path, pages_tried) # add the page tried to the master log of pages_tried
+
+            soup = BeautifulSoup(result.content, 'html.parser')
+            text1 = str(soup.find_all('script', type='application/ld+json')[0]) # test to see whether the 'script' tag exists, if it does not this will go to the 'except' statement and then try the next page
             text_r1 = text1.split('<script type="application/ld+json">')[1].split('</script>')[0]
-            pages = list(np.load(log_path+'masterlog.npy',allow_pickle=True))
-            pages.append(i)
-            np.save(dirpath+'masterlog.npy',pages) # add the page tried to the master log of pages_tried
-            with open(html_path+'page'+str(i)+'.html', "w") as file:
-                file.write(str(soup)) # write the file
-        except:
-            print(f'Recipe # {i} does not exist. No data obtained for this recipe.')
-            try:
-                errors = list(np.load(log_path+'masterlog.npy',allow_pickle=True))
-                errors.append(i)
-                np.save(log_path+'masterlog.npy',errors) # add the page tried to the master log of pages_tried
-            except:
-                print('Pickle error. Page will not be logged in pages_tried. Moving to next page.')
+            pages_tried.append(recipe_num)
+            np.save(np_path, pages_tried) # add the page tried to the master log of pages_tried
+            print(f'Recipe # {recipe_num} EXISTS. Data obtained and saved to {souped_html_pathname}')
+            with open(souped_html_pathname, "w") as file:
+                file.write(str(soup))  # write the file
+        except Exception as e:
+            print(f'Recipe # {recipe_num} does not exist. No data obtained for this recipe.')
 
-Parallel(n_jobs=cores)(delayed(scrape_webpage)(i) for i in rand_choice) # run scrape_webpage loop in parallel on 4 cores for each value of rand_choice
-
-
-
-
+Parallel(n_jobs=num_cores)(delayed(scrape_webpage)(i) for i in rand_choice) # run scrape_webpage loop in parallel on num_cores for each value of rand_choice

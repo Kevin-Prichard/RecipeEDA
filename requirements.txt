@@ -1,0 +1,4 @@
+numpy==1.21.0
+requests==2.26.0
+joblib==1.0.1
+bs4==0.0.1
